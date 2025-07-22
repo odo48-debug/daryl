@@ -1,14 +1,22 @@
-import { createAgent, openai, createTool, createNetwork, type AgentResult, type Network } from '@inngest/agent-kit';
+import { createAgent, openai, createTool, createNetwork, Tool} from '@inngest/agent-kit';
 import { inngest } from "./client";
 import { getSandbox } from "./utils";
 import { Sandbox } from "@e2b/code-interpreter";
 import { z } from "zod";
 import { PROMPT } from "../prompt";
 import { lastAssistantTextMessageContent } from "./utils";
+import { prisma } from "@/lib/db";
 
-export const helloWorld = inngest.createFunction(
-  { id: "hello-world" },
-  { event: "test/hello.world" },
+
+interface AgentState {
+  summary: string;
+  files: { [path: string]: string };
+}
+
+
+export const codeAgentFunction = inngest.createFunction(
+  { id: "code-agent" },
+  { event: "code-agent/run" },
   async ({ event, step }) => {
     const sandboxId = await step.run("get-sandbox-id", async () => {
       const sandbox = await Sandbox.create("daryl-nextjs-test2");
@@ -16,9 +24,9 @@ export const helloWorld = inngest.createFunction(
     });
     
     // Create a new agent with a system prompt (you can add optional tools, too) - VER MINUTO 2:07:15 PARA CAMBIAR DE MODELO
-    const codeAgent = createAgent({
+    const codeAgent = createAgent<AgentState>({
         name: "codeAgent",
-        description: "An expert code agent",
+        description: "An expert coding agent",
         system: PROMPT,
         model: openai({ 
           model: "gpt-4.1",
@@ -70,7 +78,7 @@ export const helloWorld = inngest.createFunction(
               }),
             handler: async (
               { files }, 
-              { network }
+              { step, network }: Tool.Options<AgentState>
             ) => {
               const newFiles = await step?.run("createOrUpdateFiles", async () => {
                 try {
@@ -114,45 +122,75 @@ export const helloWorld = inngest.createFunction(
               })
             },
           })
-        ]
-      });
+      ],
+      lifecycle: {
+        onResponse: async ({result, network }) => {
+          const lastAssistantMessageText = 
+            lastAssistantTextMessageContent(result);
 
-      const lifecycle = {
-          onResponse: async ({result, network }: {result: AgentResult, network: Network<any>}) => {
-            const lastAssistantMessageText = 
-              lastAssistantTextMessageContent(result);
-            if (lastAssistantMessageText && network) {
-              if (lastAssistantMessageText.includes("<task_summary>")) {
-                network.state.data.summary = lastAssistantMessageText;
-              }
+          if (lastAssistantMessageText && network) {
+            if (lastAssistantMessageText.includes("<task_summary>")) {
+              network.state.data.summary = lastAssistantMessageText;
             }
-            return result;
-          },
-        };
-
-      const network = createNetwork({
-        name: "coding-agent-network",
-        agents: [codeAgent],
-        maxIter: 5,
-        router: async ({ network }) => {
-          const summary = network.state.data.summary;
-
-          if (summary) {
-            return;
           }
-
-          return codeAgent;
+          return result;
         },
-      });
+      },
+    });
+
+    const network = createNetwork<AgentState>({
+      name: "coding-agent-network",
+      agents: [codeAgent],
+      maxIter: 15,
+      router: async ({ network }) => {
+        const summary = network.state.data.summary;
+
+        if (summary) {
+          return;
+        }
+
+        return codeAgent;
+      },
+    });
 
     
     const result = await network.run(event.data.value);
+
+    const isError =
+      !result.state.data.summary || 
+      Object.keys(result.state.data.files || {}).length === 0;
       
 
     const sandboxUrl = await step.run("get-sandbox-url", async () => {
       const sandbox = await getSandbox(sandboxId);
       const host = sandbox.getHost(3000);
       return `https://${host}`;
+    });
+
+    await step.run("save-result", async () => {
+      if (isError) {
+        return await prisma.message.create({
+          data: {
+            content: "Something went wrong. Please try again.",
+            role: "ASSISTANT",
+            type: "ERROR",
+          }
+        });
+      }
+        return await prisma.message.create({
+          data: {
+            content: result.state.data.summary,
+            role: "ASSISTANT",
+            type: "ERROR",
+          fragment: {
+            create: {
+              sandboxUrl: sandboxUrl,
+              title: "Fragment",
+              files: result.state.data.files,
+            },
+          },
+        },
+      });
     });
 
     return { 
