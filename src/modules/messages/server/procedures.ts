@@ -3,21 +3,51 @@ import { z } from "zod";
 import { prisma } from "@/lib/db";
 import { inngest } from "@/inngest/client";
 
-export const messageRouter = createTRPCRouter({
+export const messagesRouter = createTRPCRouter({
+    // Procedimiento de prueba simple
+    test: baseProcedure
+        .query(() => {
+            console.log("Messages test procedure called");
+            return { message: "Messages test successful", timestamp: new Date() };
+        }),
+    
     getMany: baseProcedure
-       .query(async () => {
+    .input(
+        z.object({
+            projectId: z.string().min(1, { message: "Project ID is required"}),
+        }),
+    )
+    .query(async ({ input }) => {
+         console.log("getMany called with input:", input);
+         
          const messages = await prisma.message.findMany({
-            orderBy: {
-                updatedAt: "desc",
+            where: {
+                projectId: input.projectId,
             },
             include: {
-                fragment: false,
+                fragment: true
+            },
+            orderBy: {
+                updatedAt: "asc",
             },
          });
-         return messages;
+
+         console.log("Raw messages from database:", messages);
+         console.log("Messages count:", messages.length);
+         
+         // Serializar manualmente los objetos para evitar problemas con las fechas
+         const serializedMessages = messages.map(message => ({
+            ...message,
+            createdAt: message.createdAt.toISOString(),
+            updatedAt: message.updatedAt.toISOString(),
+         }));
+         
+         console.log("Serialized messages:", serializedMessages);
+         return serializedMessages;
     }),
+    
     create: baseProcedure
-      .input(
+    .input(
         z.object({
             value: z.string()
               .min(1, { message: "Value is required"})

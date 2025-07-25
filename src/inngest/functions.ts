@@ -6,6 +6,7 @@ import { z } from "zod";
 import { PROMPT } from "../prompt";
 import { lastAssistantTextMessageContent } from "./utils";
 import { prisma } from "@/lib/db";
+import superjson from "superjson";
 
 
 interface AgentState {
