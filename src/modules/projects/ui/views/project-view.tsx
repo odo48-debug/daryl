@@ -12,6 +12,7 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { FragmentWeb } from "../components/fragment-web";
 import { ProjectHeader } from "../components/project-header";
 import { MessagesContainer } from "../components/messages-container";
+import { UserControl } from "@/components/user-control";
 
 import Link from "next/link";
 import { CrownIcon } from "lucide-react";
@@ -72,6 +73,7 @@ export const ProjectView = ({ projectId }: Props) => {
                         <CrownIcon/> Upgrade
                       </Link>
                     </Button>
+                    <UserControl />
                   </div>
                 </div>
                 <TabsContent value="preview">
