@@ -1,10 +1,11 @@
-import { createAgent, openai, createTool, createNetwork, Tool} from '@inngest/agent-kit';
-import { inngest } from "./client";
-import { getSandbox } from "./utils";
-import { Sandbox } from "@e2b/code-interpreter";
 import { z } from "zod";
-import { PROMPT } from "../prompt";
-import { lastAssistantTextMessageContent } from "./utils";
+import { Sandbox } from "@e2b/code-interpreter";
+import { createAgent, openai, createTool, createNetwork, Tool, Message, createState } from '@inngest/agent-kit';
+import { inngest } from "./client";
+import { PROMPT, FRAGMENT_TITLE_PROMPT, RESPONSE_PROMPT } from "@/prompt";
+
+
+import { getSandbox, lastAssistantTextMessageContent } from "./utils";
 import { prisma } from "@/lib/db";
 import superjson from "superjson";
 
@@ -23,6 +24,38 @@ export const codeAgentFunction = inngest.createFunction(
       const sandbox = await Sandbox.create("daryl-nextjs-test2");
       return sandbox.sandboxId;
     });
+
+    const previousMessages = await step.run("get-previous-messages", async () => {
+      const formattedMessages: Message[] = [];
+
+      const messages = await prisma.message.findMany({
+        where: {
+          projectId: event.data.projectId,
+        },
+        orderBy: {
+          createdAt: "desc", // TODO: change to 'asc' if AI is not able to read the messages
+        },
+      });
+
+      for (const message of messages) {
+        formattedMessages.push({
+          role: message.role === "ASSISTANT" ? "assistant" : "user",
+          content: message.content,
+          type: "text",
+        });
+      }
+
+      return formattedMessages;
+    });
+
+    const state = createState<AgentState>({
+      summary: "",
+      files: {},
+    },
+    {
+       messages: previousMessages,
+    },
+  );
     
     // Create a new agent with a system prompt (you can add optional tools, too) - VER MINUTO 2:07:15 PARA CAMBIAR DE MODELO
     const codeAgent = createAgent<AgentState>({
@@ -143,6 +176,7 @@ export const codeAgentFunction = inngest.createFunction(
       name: "coding-agent-network",
       agents: [codeAgent],
       maxIter: 15,
+      defaultState: state,
       router: async ({ network }) => {
         const summary = network.state.data.summary;
 
@@ -155,7 +189,62 @@ export const codeAgentFunction = inngest.createFunction(
     });
 
     
-    const result = await network.run(event.data.value);
+    const result = await network.run(event.data.value, {
+      state,
+    });
+
+    const fragmentTitleGenerator = createAgent({
+      name: "fragment-title-generator",
+      description: "Generates a title for a code fragment",
+      system: FRAGMENT_TITLE_PROMPT,
+      model: openai({
+        model: "gpt-4o-mini",
+        defaultParameters: {
+          temperature: 0.1,
+        }
+      }),
+    });
+
+    const responseGenerator = createAgent({
+      name: "response-generator",
+      description: "Generates a response for the user",
+      system: RESPONSE_PROMPT,
+      model: openai({
+        model: "gpt-4o-mini",
+        defaultParameters: {
+          temperature: 0.1,
+        }
+      }),
+    });
+
+    const { 
+      output: fragmentTitleOutput 
+    } = await fragmentTitleGenerator.run(result.state.data.summary);
+    const { 
+      output: responseOutput 
+    } = await responseGenerator.run(result.state.data.summary);
+
+    const generateFragmentTitle = () => {
+      if (fragmentTitleOutput[0].type !== "text") {
+        return "Fragment";
+      }
+      if (Array.isArray(fragmentTitleOutput[0].content)) {
+        return fragmentTitleOutput[0].content.map((txt) => txt).join(""); 
+      } else {
+        return fragmentTitleOutput[0].content;
+      }
+    };
+    
+    const generateResponse = () => {
+        if (responseOutput[0].type !== "text") {
+          return "Here you go";
+        }
+        if (Array.isArray(responseOutput[0].content)) {
+          return responseOutput[0].content.map((txt) => txt).join(""); 
+        } else {
+          return responseOutput[0].content;
+        }
+    }
 
     const isError =
       !result.state.data.summary || 
@@ -182,13 +271,13 @@ export const codeAgentFunction = inngest.createFunction(
         return await prisma.message.create({
           data: {
             projectId: event.data.projectId,
-            content: result.state.data.summary,
+            content: generateResponse(),
             role: "ASSISTANT",
             type: "RESULT",
           fragment: {
             create: {
               sandboxUrl: sandboxUrl,
-              title: "Fragment",
+              title: generateFragmentTitle(),
               files: result.state.data.files,
             },
           },
