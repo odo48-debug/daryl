@@ -10,12 +10,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTRPC } from "@/trpc/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Form, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
+import { Form, FormField } from "@/components/ui/form";
 import { Usage } from "./usage";
 import { useRouter } from "next/navigation";
 
-interface Props {
+interface MessageFormProps {
     projectId: string;
 };
 
@@ -25,7 +24,7 @@ const formSchema = z.object({
         .max(10000, { message: "Value is too long"}),
 });
 
-export const MessageForm = ({ projectId }: Props) => {
+export const MessageForm = ({ projectId }: MessageFormProps) => {
     
 
     const trpc = useTRPC();
