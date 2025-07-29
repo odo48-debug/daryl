@@ -1,4 +1,4 @@
-import { getUsageStatus, consumeCredits } from "@/lib/usage";
+import { getUsageStatus } from "@/lib/usage";
 import { createTRPCRouter, protectedProcedure } from "@/trpc/init";
 
 export const usageRouter = createTRPCRouter({
