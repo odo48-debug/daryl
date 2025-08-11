@@ -17,7 +17,7 @@ export function FragmentWeb({ data }: Props) {
     const [videoError, setVideoError] = useState(false);
     
     // URL para el video almacenado en la base de datos
-    const fallbackVideoUrl = `/api/video/${data.id}`;
+    const fallbackVideoUrl = `${window.location.origin}/api/video/${data.id}`;
     
     // Comprobar si el sandbox está disponible y preparar el fallback al video almacenado
     useEffect(() => {

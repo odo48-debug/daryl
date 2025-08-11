@@ -3,6 +3,7 @@ import { Sandbox } from "@e2b/code-interpreter";
 import { createAgent, openai, anthropic, createTool, createNetwork, Tool, Message, createState } from '@inngest/agent-kit';
 import { inngest } from "./client";
 import { PROMPT, FRAGMENT_TITLE_PROMPT, RESPONSE_PROMPT, ANALYSIS_PROMPT } from "@/prompt";
+import { put } from '@vercel/blob';
 
 
 import { getSandbox, lastAssistantTextMessageContent } from "./utils";
@@ -463,23 +464,42 @@ const network = createNetwork<AgentState>({
           clearTimeout(timeoutId);
           
           if (response.ok) {
-            // Convertir la respuesta a un ArrayBuffer
-            const videoBuffer = await response.arrayBuffer();
-            const contentType = response.headers.get("content-type") || "video/mp4";
-            
-            // Convertir el ArrayBuffer a base64 para almacenarlo como string en la base de datos
-            const uint8Array = new Uint8Array(videoBuffer);
-            const videoBase64 = Buffer.from(uint8Array).toString('base64');
-            
-            console.log(`Video descargado: ${videoBuffer.byteLength} bytes, tipo: ${contentType}`);
-            
-            // Añadir el video a los archivos como un campo especial
-            // Necesitamos asegurarnos de que todos los valores sean strings
-            result.state.data.files = {
-              ...result.state.data.files,
-              "__video_data__": videoBase64,
-              "__video_mime_type__": contentType
-            };
+            try {
+              console.log("[INNGEST VIDEO] Starting video processing for Blob Storage...");
+              
+              // Get the video as a blob
+              const videoBlob = await response.blob();
+              const contentType = response.headers.get("content-type") || "video/mp4";
+              
+              console.log(`[INNGEST VIDEO] Video downloaded: ${videoBlob.size} bytes, type: ${contentType}`);
+              
+              // Generate a unique filename for the video
+              const fileExtension = contentType === "video/webm" ? "webm" : "mp4";
+              const timestamp = Date.now();
+              const filename = `inngest-video-${timestamp}.${fileExtension}`;
+              
+              console.log("[INNGEST VIDEO] Uploading to Vercel Blob Storage with filename:", filename);
+              console.log("[INNGEST VIDEO] BLOB_READ_WRITE_TOKEN available:", !!process.env.BLOB_READ_WRITE_TOKEN);
+              
+              // Upload the video to Vercel Blob Storage
+              const { url } = await put(filename, videoBlob, {
+                access: 'public',
+                contentType: contentType,
+              });
+              
+              console.log(`[INNGEST VIDEO] ✅ Video uploaded successfully to Blob Storage: ${url}`);
+              
+              // Save only the URL and MIME type in the database
+              result.state.data.files = {
+                ...result.state.data.files,
+                "__video_url__": url,
+                "__video_mime_type__": contentType
+              };
+            } catch (blobError) {
+              console.error("[INNGEST VIDEO] ❌ Error uploading to Blob Storage:", blobError);
+              // In case of error, don't save any video data
+              console.log("[INNGEST VIDEO] Skipping video save due to Blob Storage error");
+            }
           } else {
             console.warn(`Error al descargar el video: ${response.status} ${response.statusText}`);
           }
