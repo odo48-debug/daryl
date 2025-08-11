@@ -3,8 +3,9 @@ import { prisma } from "@/lib/db";
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: { fragmentId: string } }
+  context: { params: Promise<{ fragmentId: string }> }
 ) {
+  const params = await context.params;
   try {
     const fragmentId = params.fragmentId;
 
