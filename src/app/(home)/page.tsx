@@ -27,6 +27,17 @@ const Page = () => {
                   playsInline
                   className="w-full absolute top-1/2 -translate-y-1/2 object-cover"
                   style={{ mixBlendMode: 'normal' }}
+                  onError={(e) => {
+                    console.error('Error loading video:', e);
+                    console.log('Current domain:', window.location.hostname);
+                    console.log('Video URL:', `/file3.webm`);
+                  }}
+                  onLoadStart={() => {
+                    console.log('Video loading started');
+                  }}
+                  onCanPlay={() => {
+                    console.log('Video can play');
+                  }}
                 />
               </div>
             </div>

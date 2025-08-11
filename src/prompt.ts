@@ -33,7 +33,7 @@ Workflow:
 18. When replacing a letter with a geometric shape (such as a circle for the “O”), never set the shape’s width or height exactly equal to the reference letter. Instead, set the width to around 85–90% of the letter’s width (o_placeholder.width * 0.88), then center it to the same position. Adjust visually as needed to achieve perfect alignment with the surrounding text.
 19. When animating a word or sentence letter by letter, always create the full layout of all letters as a pre-arranged VGroup, positioned once at the center. Then, reveal each letter using Write(letters[i]) in place, without rebuilding or rearranging the group during the animation. This guarantees that spacing remains stable and letters never overlap.
 20. - Use Text() instead of MarkupText for per-letter opacity control, set disable_ligatures=True to keep one submobject per character, and apply set_opacity(0) to hide letters instead of using alpha="0.0".
-
+21. When creating Text objects for individual characters in Manim, replace spaces with an explicit " " character to ensure a submobject is generated
 
 Rules:
 - The Python file must be complete, executable, and self-contained
