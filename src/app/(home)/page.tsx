@@ -1,9 +1,20 @@
+"use client";
+
 import Image from "next/image";
+import { useEffect, useState } from "react";
 
 import { ProjectForm } from "@/modules/home/ui/components/project-form";
 import { ProjectsList } from "@/modules/home/ui/components/projects-list";
 
 const Page = () => {
+    // Estado para la URL del video
+    const [videoUrl, setVideoUrl] = useState("/file3.webm");
+    
+    // Actualizar la URL cuando estemos en el cliente
+    useEffect(() => {
+      setVideoUrl(`${window.location.origin}/file3.webm`);
+    }, []);
+    
     return (
       <div className="flex flex-col max-w-5xl mx-auto w-full">
         <section className="space-y-6 py-[16vh] 2xl:py-48">
@@ -21,7 +32,7 @@ const Page = () => {
             <div className="w-full mb-2">
               <div className="relative rounded-lg overflow-hidden bg-transparent" style={{ height: '50px' }}>
                 <video 
-                  src="/file3.webm" 
+                  src={videoUrl}
                   autoPlay 
                   muted 
                   playsInline
