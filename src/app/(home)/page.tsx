@@ -38,6 +38,7 @@ const Page = () => {
                   playsInline
                   className="w-full absolute top-1/2 -translate-y-1/2 object-cover"
                   style={{ mixBlendMode: 'normal' }}
+                  crossOrigin="anonymous"
                 />
               </div>
             </div>
