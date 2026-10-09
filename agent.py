@@ -8,13 +8,14 @@ from anthropic.tools.computer import BetaComputerConfirmContext
 from display import WindowsDisplay
 from desktop_toolset import WindowsDesktopToolset
 from hud import DarylHUD, set_terminal_always_on_top
+from memory import get_memory_context, add_memory_entry
 
 load_dotenv()
 
 NOT_EXECUTED = "Not executed: an earlier action in this turn failed."
 MAX_INNER_TURNS = 50
 
-SYSTEM_PROMPT = """Eres DARYL, un agente autónomo de control de escritorio para Windows.
+BASE_SYSTEM_PROMPT = """Eres DARYL, un agente autónomo de control de escritorio para Windows.
 Tu objetivo es completar las instrucciones del usuario de principio a fin de forma autónoma, rápida y continua.
 
 REGLAS FUNDAMENTALES DE EJECUCIÓN:
@@ -45,9 +46,9 @@ def make_confirm_handler(hud: DarylHUD, auto_approve: bool = True):
 
 def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopToolset, messages: list, hud: DarylHUD):
     """
-    Ejecuta el bucle de interacción de herramientas respetando estrictamente el patrón:
-    assistant (tool_use) -> user (tool_result) requerido por la API de Anthropic.
+    Ejecuta el bucle de interacción de herramientas inyectando la memoria dinámica en el SYSTEM_PROMPT.
     """
+    system_prompt = BASE_SYSTEM_PROMPT + "\n\n" + get_memory_context()
     turns_executed = 0
     for turn in range(MAX_INNER_TURNS):
         turns_executed += 1
@@ -56,7 +57,7 @@ def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopTool
             response = client.beta.messages.create(
                 model=model_name,
                 max_tokens=2048,
-                system=SYSTEM_PROMPT,
+                system=system_prompt,
                 tools=[desktop],
                 messages=messages,
             )
@@ -141,10 +142,10 @@ def main():
     hud.update_status("Iniciando DARYL...", "waiting")
 
     print("=" * 60)
-    print("🤖 DARYL - Agente de Control de Escritorio")
+    print("🤖 DARYL - Agente de Control de Escritorio (con Memoria Persistente)")
     print(f"📌 Modelo activo: {model_name}")
+    print("💡 Escribe 'recordar: Titulo | Detalle' para guardar un nuevo aprendizaje.")
     print("💡 Escribe 'salir' o 'exit' para finalizar la sesión.")
-    print("📌 La terminal y la barra de estado (HUD) están en modo Always on Top.")
     print("=" * 60)
 
     display = WindowsDisplay(target_resolution=(1280, 720))
@@ -170,6 +171,16 @@ def main():
                             print("\n👋 Cerrando DARYL. ¡Hasta la próxima!")
                             break
                         
+                        # Manejo especial de comando de memoria
+                        if user_input.lower().startswith("recordar:") or user_input.lower().startswith("recuerda:"):
+                            parts = user_input.split(":", 1)[1].split("|", 1)
+                            title = parts[0].strip()
+                            details = parts[1].strip() if len(parts) > 1 else title
+                            add_memory_entry(title, details)
+                            print(f"\n🧠 [MEMORIA DARYL]: Aprendizaje guardado con éxito -> '{title}'")
+                            hud.update_status("Memoria guardada", "running")
+                            continue
+
                         messages.append({"role": "user", "content": user_input})
                         execute_turn(client, model_name, desktop, messages, hud)
                         
