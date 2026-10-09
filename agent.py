@@ -15,6 +15,25 @@ load_dotenv()
 NOT_EXECUTED = "Not executed: an earlier action in this turn failed."
 MAX_INNER_TURNS = 50
 
+SAVE_MEMORY_TOOL = {
+    "name": "save_memory",
+    "description": "Guarda un procedimiento, atajo o aprendizaje útil en la memoria a largo plazo de DARYL para recordarlo autónomamente en el futuro.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Título descriptivo del aprendizaje o procedimiento (ej. 'Atajo para buscar en WhatsApp Desktop')"
+            },
+            "details": {
+                "type": "string",
+                "description": "Explicación detallada de los pasos o regla aprendida"
+            }
+        },
+        "required": ["title", "details"]
+    }
+}
+
 BASE_SYSTEM_PROMPT = """Eres DARYL, un agente autónomo de control de escritorio para Windows.
 Tu objetivo es completar las instrucciones del usuario de principio a fin de forma autónoma, rápida y continua.
 
@@ -22,8 +41,9 @@ REGLAS FUNDAMENTALES DE EJECUCIÓN:
 1. AUTONOMÍA CONTINUA Y RÁPIDA: Ejecuta secuencias de acciones en lote (por ejemplo, hacer clic, escribir texto y solicitar una captura de pantalla final) en una misma respuesta para minimizar las idas y vueltas.
 2. USO DE ZOOM: Si algún texto, botón o elemento de interfaz es pequeño o ilegible en la captura estándar, utiliza la herramienta 'zoom' con la región [x0, y0, x1, y1] para ampliar la zona y leer el texto con total claridad.
 3. USO DE SCROLL: Utiliza la herramienta 'scroll' para desplazarte por listas, chats o páginas web cuando el elemento deseado no aparezca visible en pantalla.
-4. SIN CHAT INTERMEDIO INNECESARIO: No te detengas solo para comentar el progreso parcial. Continúa realizando las acciones hasta completar el objetivo.
-5. PREGUNTAS CRÍTICAS: Solo detente si existe una duda ambigua e insalvable (ej. múltiples contactos coincidentes).
+4. AUTOGESTIÓN DE MEMORIA: Tienes acceso a la herramienta 'save_memory'. Si descubres un nuevo procedimiento eficiente, un atajo de teclado útil, o si el usuario te indica que recuerdes algo para el futuro, invoca 'save_memory' autónomamente para guardarlo en tu memoria a largo plazo.
+5. SIN CHAT INTERMEDIO INNECESARIO: No te detengas solo para comentar el progreso parcial. Continúa realizando las acciones hasta completar el objetivo.
+6. PREGUNTAS CRÍTICAS: Solo detente si existe una duda ambigua e insalvable (ej. múltiples contactos coincidentes).
 """
 
 # Safety confirmation context handler
@@ -46,10 +66,12 @@ def make_confirm_handler(hud: DarylHUD, auto_approve: bool = True):
 
 def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopToolset, messages: list, hud: DarylHUD):
     """
-    Ejecuta el bucle de interacción de herramientas inyectando la memoria dinámica en el SYSTEM_PROMPT.
+    Ejecuta el bucle de interacción de herramientas inyectando la memoria dinámica y la herramienta save_memory.
     """
     system_prompt = BASE_SYSTEM_PROMPT + "\n\n" + get_memory_context()
     turns_executed = 0
+    tools_list = [desktop, SAVE_MEMORY_TOOL]
+
     for turn in range(MAX_INNER_TURNS):
         turns_executed += 1
         hud.update_status("Pensando siguiente paso...", "working")
@@ -58,7 +80,7 @@ def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopTool
                 model=model_name,
                 max_tokens=2048,
                 system=system_prompt,
-                tools=[desktop],
+                tools=tools_list,
                 messages=messages,
             )
         except Exception as e:
@@ -68,10 +90,10 @@ def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopTool
             
         messages.append({"role": "assistant", "content": response.content})
         
-        # Filtrar llamadas de herramientas pertenecientes al toolset del ordenador
+        # Filtrar llamadas de herramientas
         calls = [
             block for block in response.content
-            if block.type == "tool_use" and getattr(block, "toolset_name", None) == desktop.toolset_name
+            if block.type == "tool_use"
         ]
         
         # Imprimir mensajes del asistente y acciones solicitadas
@@ -93,28 +115,44 @@ def execute_turn(client: Anthropic, model_name: str, desktop: WindowsDesktopTool
         failed = False
         for call in calls:
             if failed:
-                results.append({
+                res_dict = {
                     "type": "tool_result",
                     "tool_use_id": call.id,
-                    "toolset_name": call.toolset_name,
                     "content": NOT_EXECUTED,
                     "is_error": True,
-                })
+                }
+                if getattr(call, "toolset_name", None):
+                    res_dict["toolset_name"] = call.toolset_name
+                results.append(res_dict)
                 continue
             
             try:
-                res = desktop.tool_result(call)
-                failed = bool(res.get("is_error"))
-                results.append(res)
+                if call.name == "save_memory":
+                    title = call.input.get("title", "Nuevo aprendizaje")
+                    details = call.input.get("details", "")
+                    add_memory_entry(title, details)
+                    print(f"\n🧠 [AUTOMEMORIA DARYL]: Guardado autónomamente -> '{title}'")
+                    hud.update_status(f"Memoria guardada: {title}", "running")
+                    results.append({
+                        "type": "tool_result",
+                        "tool_use_id": call.id,
+                        "content": f"Aprendizaje '{title}' guardado con éxito en la memoria a largo plazo."
+                    })
+                else:
+                    res = desktop.tool_result(call)
+                    failed = bool(res.get("is_error"))
+                    results.append(res)
             except Exception as ex:
                 failed = True
-                results.append({
+                res_dict = {
                     "type": "tool_result",
                     "tool_use_id": call.id,
-                    "toolset_name": call.toolset_name,
                     "content": f"Error al ejecutar herramienta: {ex}",
                     "is_error": True,
-                })
+                }
+                if getattr(call, "toolset_name", None):
+                    res_dict["toolset_name"] = call.toolset_name
+                results.append(res_dict)
 
         # Adjuntar los resultados de las herramientas a la conversación
         messages.append({"role": "user", "content": results})
@@ -142,9 +180,9 @@ def main():
     hud.update_status("Iniciando DARYL...", "waiting")
 
     print("=" * 60)
-    print("🤖 DARYL - Agente de Control de Escritorio (con Memoria Persistente)")
+    print("🤖 DARYL - Agente de Control de Escritorio (con Automemoria)")
     print(f"📌 Modelo activo: {model_name}")
-    print("💡 Escribe 'recordar: Titulo | Detalle' para guardar un nuevo aprendizaje.")
+    print("💡 Escribe 'recordar: Titulo | Detalle' para guardar un aprendizaje manualmente.")
     print("💡 Escribe 'salir' o 'exit' para finalizar la sesión.")
     print("=" * 60)
 
@@ -171,7 +209,7 @@ def main():
                             print("\n👋 Cerrando DARYL. ¡Hasta la próxima!")
                             break
                         
-                        # Manejo especial de comando de memoria
+                        # Manejo especial de comando de memoria manual
                         if user_input.lower().startswith("recordar:") or user_input.lower().startswith("recuerda:"):
                             parts = user_input.split(":", 1)[1].split("|", 1)
                             title = parts[0].strip()
